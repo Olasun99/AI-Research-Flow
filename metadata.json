@@ -1,0 +1,6 @@
+{
+  "name": "ResearchFlow AI",
+  "description": "Your Complete AI-Powered Research Writing Workspace. Write. Cite. Organize. Publish.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
