@@ -5,63 +5,65 @@ export function CitationValidator() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanComplete, setScanComplete] = useState(false);
   const [activeLevel, setActiveLevel] = useState<number>(0);
+  const [documentText, setDocumentText] = useState('Smoking causes ischemic stroke. Hydrosalpinx decreases pregnancy rates by 50%. Deep learning models have demonstrated human-level accuracy in specific image recognition tasks.');
+  const [verifiedClaims, setVerifiedClaims] = useState<any[]>([]);
 
   const verificationLevels = [
-    { id: 1, title: 'Existence', desc: 'Checks Crossref/PubMed' },
-    { id: 2, title: 'Metadata', desc: 'Validates Authors, Title, Year' },
-    { id: 3, title: 'Claim/Evidence', desc: 'Verifies source supports claim' },
-    { id: 4, title: 'Numerical', desc: 'Validates exact statistics' },
-    { id: 5, title: 'DOI Match', desc: 'Verifies the DOI resolution' },
-    { id: 6, title: 'Retraction', desc: 'Checks for retractions/errata' },
+    { id: 1, title: 'Extract Claims', desc: 'Parses text to atomic claims' },
+    { id: 2, title: 'Query Generation', desc: 'Builds PubMed/OpenAlex queries' },
+    { id: 3, title: 'Source Retrieval', desc: 'Fetches scholarly metadata' },
+    { id: 4, title: 'Evidence Extraction', desc: 'Pulls abstract snippets' },
+    { id: 5, title: 'Claim-Evidence Match', desc: 'LLM compares claim to source' },
+    { id: 6, title: 'Result Normalization', desc: 'Formats VERIFIED/CONTRADICTED states' },
   ];
 
-  const claims = [
-    {
-      id: 1,
-      claim: "Deep learning models have demonstrated human-level accuracy in specific image recognition tasks.",
-      citation: "Vaswani et al., 2017",
-      doi: "10.5555/3295222.3295349",
-      evidenceFound: true,
-      status: 'verified',
-    },
-    {
-      id: 2,
-      claim: "Hydrosalpinx decreases pregnancy rates by 50%.",
-      citation: "Mohiyiddeen et al., 2015",
-      doi: "10.1002/14651858.CD003718",
-      evidenceFound: true,
-      status: 'partial',
-      problem: "The cited paper discusses reduced pregnancy rates but does not support the specific 50% estimate."
-    },
-    {
-      id: 3,
-      claim: "Tubal-factor infertility accounts for approximately 30% of female infertility cases.",
-      citation: "Smith et al., 2023",
-      doi: "10.1016/invalid.doi",
-      evidenceFound: false,
-      status: 'unsupported',
-      problem: "Paper does not exist or DOI is invalid (Type A: Bibliographic Hallucination)."
-    }
-  ];
-
-  const startScan = () => {
+  const startScan = async () => {
     setIsScanning(true);
     setScanComplete(false);
+    setVerifiedClaims([]);
     setActiveLevel(1);
     
-    let currentLevel = 1;
-    const interval = setInterval(() => {
-      currentLevel++;
-      if (currentLevel <= 6) {
-        setActiveLevel(currentLevel);
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
-          setIsScanning(false);
-          setScanComplete(true);
-        }, 500);
-      }
-    }, 800);
+    try {
+       const interval = setInterval(() => {
+          setActiveLevel(prev => (prev < 6 ? prev + 1 : prev));
+       }, 1000);
+
+       const res = await fetch('/api/claims/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: documentText })
+       });
+
+       clearInterval(interval);
+       setActiveLevel(6);
+
+       if (res.ok) {
+          const data = await res.json();
+          setVerifiedClaims(data.results || []);
+       } else {
+          console.error("Failed to verify");
+       }
+    } catch (e) {
+       console.error(e);
+    } finally {
+       setIsScanning(false);
+       setScanComplete(true);
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    if (status === 'SUPPORTED') return <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
+    if (status === 'PARTIALLY_SUPPORTED') return <AlertTriangle className="w-4 h-4 text-amber-600" />;
+    if (status === 'CONTRADICTED') return <XCircle className="w-4 h-4 text-rose-600" />;
+    return <AlertCircle className="w-4 h-4 text-slate-400" />;
+  };
+
+  const getStatusBadge = (status: string) => {
+    const base = "px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest inline-flex items-center gap-1 ";
+    if (status === 'SUPPORTED') return base + "bg-emerald-100 text-emerald-700";
+    if (status === 'PARTIALLY_SUPPORTED') return base + "bg-amber-100 text-amber-700";
+    if (status === 'CONTRADICTED') return base + "bg-rose-100 text-rose-700";
+    return base + "bg-slate-100 text-slate-700";
   };
 
   return (
@@ -77,7 +79,7 @@ export function CitationValidator() {
         </div>
         <button 
           onClick={startScan}
-          disabled={isScanning}
+          disabled={isScanning || !documentText.trim()}
           className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
         >
           {isScanning ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
@@ -85,7 +87,13 @@ export function CitationValidator() {
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+         <textarea
+            value={documentText}
+            onChange={(e) => setDocumentText(e.target.value)}
+            placeholder="Paste document text or paragraphs here..."
+            className="w-full h-24 p-4 text-sm border border-slate-200 rounded-lg focus:ring-2 ring-indigo-500 outline-none resize-none"
+         />
         <div className="grid grid-cols-6 gap-2">
           {verificationLevels.map(level => (
             <div key={level.id} className={`p-3 rounded-lg border flex flex-col items-center text-center transition-colors ${
@@ -110,9 +118,9 @@ export function CitationValidator() {
            <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Evidence Audit Table</h3>
               <div className="flex gap-4">
-                 <span className="text-xs font-bold text-emerald-700 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> 1 Verified</span>
-                 <span className="text-xs font-bold text-amber-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> 1 Partial</span>
-                 <span className="text-xs font-bold text-rose-700 flex items-center gap-1"><XCircle className="w-3.5 h-3.5" /> 1 Unsupported</span>
+                 <span className="text-xs font-bold text-emerald-700 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Supported</span>
+                 <span className="text-xs font-bold text-amber-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Partial</span>
+                 <span className="text-xs font-bold text-rose-700 flex items-center gap-1"><XCircle className="w-3.5 h-3.5" /> Contradicted/Unverified</span>
               </div>
            </div>
            
@@ -120,54 +128,63 @@ export function CitationValidator() {
              <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Claim</th>
-                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Citation</th>
-                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">DOI</th>
-                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Evidence</th>
+                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Extracted Claim</th>
+                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Retrieved Source</th>
+                    <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Evidence/Reasoning</th>
                     <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {claims.map(claim => (
-                    <tr key={claim.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                      <td className="p-4">
+                  {verifiedClaims.map((claim, idx) => (
+                    <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50">
+                      <td className="p-4 align-top w-1/4">
                         <p className="text-sm font-medium text-slate-800 leading-relaxed">{claim.claim}</p>
-                        {claim.problem && (
-                          <div className="mt-2 text-xs font-medium text-rose-600 bg-rose-50 p-2 rounded border border-rose-100 flex items-start gap-1.5">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {claim.problem}
+                      </td>
+                      <td className="p-4 align-top w-1/4">
+                        <div className="flex items-start gap-2">
+                          <BookOpen className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
+                          <div>
+                            {claim.topSource ? (
+                               <>
+                                  <div className="text-sm font-bold text-slate-700 leading-snug">{claim.topSource.title}</div>
+                                  <div className="text-xs text-slate-500 mt-1">{claim.topSource.authors} ({claim.topSource.year})</div>
+                                  <div className="text-[10px] font-mono text-slate-400 mt-1">
+                                    <span className="font-bold text-indigo-500 mr-2">[{claim.topSource.sourceDatabase}]</span>
+                                    {claim.topSource.pmid && <span>PMID: {claim.topSource.pmid} </span>}
+                                    {claim.topSource.doi && <span>DOI: {claim.topSource.doi}</span>}
+                                  </div>
+                               </>
+                            ) : (
+                               <div className="text-sm text-slate-500 italic">No exact scholarly source found.</div>
+                            )}
                           </div>
-                        )}
+                        </div>
                       </td>
-                      <td className="p-4">
-                        <span className="text-sm font-bold text-slate-700">{claim.citation}</span>
+                      <td className="p-4 align-top w-1/3">
+                        <div className="flex items-start gap-2">
+                           {getStatusIcon(claim.status)}
+                           <div>
+                              <div className="text-sm text-slate-700 italic">"{claim.evidence?.evidenceLocation || 'N/A'}"</div>
+                              <div className="text-xs font-medium text-slate-600 mt-2 bg-slate-50 p-2 rounded border border-slate-100">
+                                 {claim.evidence?.reasoning || claim.message}
+                              </div>
+                           </div>
+                        </div>
                       </td>
-                      <td className="p-4">
-                        <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded">{claim.doi}</span>
-                      </td>
-                      <td className="p-4">
-                        <span className={`text-xs font-bold px-2 py-1 rounded ${claim.evidenceFound ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                          {claim.evidenceFound ? 'Yes' : 'No'}
+                      <td className="p-4 align-top">
+                        <span className={getStatusBadge(claim.status)}>
+                          {claim.status?.replace('_', ' ')}
                         </span>
-                      </td>
-                      <td className="p-4">
-                        {claim.status === 'verified' && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700"><CheckCircle2 className="w-3.5 h-3.5" /> Verified</span>}
-                        {claim.status === 'partial' && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700"><AlertTriangle className="w-3.5 h-3.5" /> Partial</span>}
-                        {claim.status === 'unsupported' && <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700"><XCircle className="w-3.5 h-3.5" /> Unsupported</span>}
                       </td>
                     </tr>
                   ))}
+                  {verifiedClaims.length === 0 && (
+                     <tr>
+                        <td colSpan={4} className="p-8 text-center text-sm text-slate-500">No claims extracted or verified.</td>
+                     </tr>
+                  )}
                 </tbody>
              </table>
-           </div>
-        </div>
-      )}
-      
-      {!scanComplete && !isScanning && (
-        <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-slate-400">
-           <div className="text-center">
-             <ShieldCheck className="w-12 h-12 mx-auto mb-3 opacity-50" />
-             <p className="text-sm font-bold">Ready to verify document claims</p>
-             <p className="text-xs font-medium mt-1">Click the verify button to begin the 6-stage audit</p>
            </div>
         </div>
       )}

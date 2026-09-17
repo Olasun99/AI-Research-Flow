@@ -35,13 +35,25 @@ export function LiteratureReview() {
 
   const activeThemeData = themes.find(t => t.id === activeTheme) || themes[0];
 
-  const generateSynthesis = () => {
+  const generateSynthesis = async () => {
     setIsGenerating(true);
     setSynthesis(null);
-    setTimeout(() => {
-      setSynthesis(`Based on the ${activeThemeData.papersCount} papers in this theme, there is a strong consensus that ${activeThemeData.name.toLowerCase()} is a critical area. However, the identified gap (${activeThemeData.gap.toLowerCase()}) remains largely unaddressed in literature from the last 2 years. Future research should prioritize this area.`);
+    try {
+      const prompt = `Synthesize the literature based on the following theme:\nTheme: ${activeThemeData.name}\nSummary: ${activeThemeData.summary}\nGap: ${activeThemeData.gap}\nPapers: ${activeThemeData.papersCount}\nPlease write a short, academic paragraph synthesizing this information.`;
+      
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: prompt })
+      });
+      const data = await res.json();
+      setSynthesis(data.text);
+    } catch (err) {
+      console.error(err);
+      setSynthesis("Failed to generate synthesis. Please ensure the backend is running.");
+    } finally {
       setIsGenerating(false);
-    }, 2000);
+    }
   };
 
   return (

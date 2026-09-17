@@ -2,17 +2,82 @@ import express from "express";
 import path from "path";
 import multer from "multer";
 import { GoogleGenAI } from "@google/genai";
+import { PubMedProvider, CrossrefProvider, OpenAlexProvider } from "./server/providers";
+import { extractClaims, verifyClaimAgainstSource } from "./server/verification";
 import { v4 as uuidv4 } from "uuid";
+
+const pubMed = new PubMedProvider();
+const crossref = new CrossrefProvider();
+const openAlex = new OpenAlexProvider();
+
 import { createServer as createViteServer } from "vite";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import { verifyReference, formatCitations, searchRelatedArticles } from "./server/citation-engine";
 
 const upload = multer({ dest: "uploads/" });
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", 1);
   const PORT = 3000;
+
+  // Claim Verification Endpoint
+  app.post("/api/claims/verify", async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text) return res.status(400).json({ error: "Text is required" });
+
+      // 1. Extract Claims
+      const claims = await extractClaims(text);
+      if (claims.length === 0) {
+         return res.json({ results: [] });
+      }
+
+      const results = [];
+      
+      // 2. Process each claim
+      for (const claim of claims) {
+         // Search all providers in parallel
+         const [pubmedSources, crossrefSources, openalexSources] = await Promise.all([
+             pubMed.search(claim, 2),
+             crossref.search(claim, 2),
+             openAlex.search(claim, 2)
+         ]);
+         
+         const allSources = [...pubmedSources, ...crossrefSources, ...openalexSources]
+            .filter(s => s.abstract && s.abstract.length > 50); // Prioritize sources with abstracts for verification
+
+         if (allSources.length === 0) {
+            results.push({
+               claim,
+               status: 'UNVERIFIED',
+               sources: [],
+               message: 'No sources with sufficient abstract found across databases.'
+            });
+            continue;
+         }
+
+         // Verify against the top source with an abstract
+         const topSource = allSources[0];
+         const evidence = await verifyClaimAgainstSource(claim, topSource);
+
+         results.push({
+            claim,
+            status: evidence.supportLevel,
+            topSource,
+            evidence
+         });
+      }
+
+      res.json({ results });
+
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Claim verification failed" });
+    }
+  });
 
   // Security middlewares
   app.use(helmet({
@@ -27,6 +92,7 @@ async function startServer() {
     max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false, default: true },
     message: { error: "Too many requests, please try again later." }
   });
 
@@ -162,6 +228,45 @@ async function startServer() {
          res.status(500).json({ error: "Document processing failed" });
      }
   });
+
+// Bibliography Manager Routes
+app.post("/api/citations/search", async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ error: "Query is required" });
+    const results = await searchRelatedArticles(query);
+    res.json({ results });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Search failed" });
+  }
+});
+
+app.post("/api/citations/verify-bulk", async (req, res) => {
+  try {
+    const { references } = req.body;
+    if (!references || !Array.isArray(references)) {
+      return res.status(400).json({ error: "References array is required" });
+    }
+
+    const results = await Promise.all(references.map(ref => verifyReference(ref)));
+    res.json({ results });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+app.post("/api/citations/format-bulk", async (req, res) => {
+  try {
+    const { metadataList, style } = req.body;
+    const formatted = formatCitations(metadataList, style);
+    res.json(formatted);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Formatting failed" });
+  }
+});
 
   // Assistant Query
   app.post("/api/assistant", async (req, res) => {

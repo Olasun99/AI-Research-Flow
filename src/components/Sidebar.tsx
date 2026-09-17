@@ -12,7 +12,7 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
     { id: 'library', label: 'Reference Library', icon: Library },
     { id: 'literature', label: 'Literature Review', icon: GitMerge },
     { id: 'writing', label: 'Writing Workspace', icon: PenTool },
-    { id: 'citation', label: 'Citation Manager', icon: BookMarked },
+    { id: 'citation', label: 'Bibliography Manager', icon: BookMarked },
     { id: 'assistant', label: 'AI Assistant', icon: Sparkles },
     { id: 'validator', label: 'Citation Validator', icon: FileSearch },
     { id: 'submission', label: 'Export & Submission', icon: FileCheck2 },
